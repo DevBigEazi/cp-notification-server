@@ -1,0 +1,32 @@
+{
+  "name": "circlepot-notification-server",
+  "version": "1.0.0",
+  "description": "Push notification server for CirclePot",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "generate-vapid": "web-push generate-vapid-keys --json > vapid-keys.json"
+  },
+  "dependencies": {
+    "@types/mongoose": "^5.11.96",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "graphql": "^16.8.1",
+    "graphql-request": "^6.1.0",
+    "mongoose": "^8.20.4",
+    "node-cron": "^3.0.3",
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.6",
+    "@types/node-cron": "^3.0.11",
+    "@types/web-push": "^3.6.3",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}
