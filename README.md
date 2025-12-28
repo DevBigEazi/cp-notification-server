@@ -131,29 +131,6 @@ The server supports these notification types:
 - `system_maintenance` - Maintenance notice
 - `security_alert` - Security notification
 
-## Production Deployment
-
-For production, consider:
-
-1. **Database**: Replace in-memory store with PostgreSQL/MongoDB
-2. **Rate Limiting**: Add rate limiting middleware
-3. **Authentication**: Add API key or JWT authentication
-4. **Logging**: Use proper logging (Winston, Pino)
-5. **Monitoring**: Add health monitoring
-6. **SSL**: Deploy behind HTTPS
-
-### Example: Deploy to Railway
-
-```bash
-# Install Railway CLI
-npm install -g @railway/cli
-
-# Login and deploy
-railway login
-railway init
-railway up
-```
-
 ## Testing
 
 Send a test notification:
