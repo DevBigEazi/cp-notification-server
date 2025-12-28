@@ -8,7 +8,7 @@ Push notification server for CirclePot PWA. Handles subscription management, eve
 - ✅ Subgraph event polling
 - ✅ Goal deadline scheduling
 - ✅ Per-user notification preferences
-- ✅ In-memory subscription storage (replace with DB for production)
+- ✅ MongoDB subscription storage
 
 ## Quick Start
 
@@ -25,7 +25,7 @@ npm install
 npm run generate-vapid
 ```
 
-This creates `vapid-keys.json`. Copy the keys to your `.env` file.
+This creates `vapid-keys.json`. Copy the keys to `.env` file.
 
 ### 3. Configure Environment
 
