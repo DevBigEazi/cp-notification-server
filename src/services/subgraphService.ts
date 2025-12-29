@@ -185,7 +185,7 @@ async function processCircleJoinedEvents(events: CircleJoinedEvent[]): Promise<v
         const membersToNotify = members.filter((m) => m.toLowerCase() !== event.user.id.toLowerCase());
 
         if (membersToNotify.length > 0) {
-            const userName = event.user.fullName || event.user.username || "Someone";
+            const userName = event.user.username || "Someone";
             const circleName = await getCircleName(event.circleId);
 
             await sendNotification(membersToNotify, {
@@ -221,7 +221,7 @@ async function processPayoutEvents(events: PayoutDistributedEvent[]): Promise<vo
         const othersToNotify = members.filter((m) => m.toLowerCase() !== event.user.id.toLowerCase());
 
         if (othersToNotify.length > 0) {
-            const recipientName = event.user.fullName || event.user.username || "A member";
+            const recipientName = event.user.username || "A member";
 
             await sendNotification(othersToNotify, {
                 title: "Circle Payout Completed",
@@ -244,7 +244,7 @@ async function processContributionEvents(events: ContributionMadeEvent[]): Promi
         const othersToNotify = members.filter((m) => m.toLowerCase() !== event.user.id.toLowerCase());
 
         if (othersToNotify.length > 0) {
-            const contributorName = event.user.fullName || event.user.username || "A member";
+            const contributorName = event.user.username || "A member";
             const amount = formatAmount(event.amount);
 
             await sendNotification(othersToNotify, {
@@ -281,7 +281,7 @@ async function processCollateralWithdrawnEvents(events: CollateralWithdrawnEvent
         const othersToNotify = members.filter((m) => m.toLowerCase() !== event.user.id.toLowerCase());
 
         if (othersToNotify.length > 0) {
-            const userName = event.user.fullName || event.user.username || "A member";
+            const userName = event.user.username || "A member";
 
             await sendNotification(othersToNotify, {
                 title: "Member Withdrew",
@@ -300,7 +300,7 @@ async function processCollateralWithdrawnEvents(events: CollateralWithdrawnEvent
  */
 async function processMemberInvitedEvents(events: MemberInvitedEvent[]): Promise<void> {
     for (const event of events) {
-        const inviterName = event.inviter.fullName || event.inviter.username || "Someone";
+        const inviterName = event.inviter.username || "Someone";
         const circleName = await getCircleName(event.circleId);
 
         await sendNotification([event.invitee.id], {
@@ -362,7 +362,7 @@ async function processVoteExecutedEvents(events: VoteExecutedEvent[]): Promise<v
  */
 async function processMemberForfeitedEvents(events: MemberForfeitedEvent[]): Promise<void> {
     for (const event of events) {
-        const forfeitedName = event.forfeitedUser.fullName || event.forfeitedUser.username || "A member";
+        const forfeitedName = event.forfeitedUser.username || "A member";
         const amount = formatAmount(event.deductionAmount);
 
         // Notify the forfeited user
