@@ -1,0 +1,236 @@
+import cron from "node-cron";
+import { GraphQLClient, gql } from "graphql-request";
+import { sendNotification } from "./pushService";
+import type { PersonalGoal } from "../types";
+
+const SUBGRAPH_URL = process.env.SUBGRAPH_URL || "";
+let client: GraphQLClient | null = null;
+
+// Track sent notifications to avoid duplicates
+const sentNotifications = new Set<string>();
+
+/**
+ * Initialize the scheduler
+ */
+export function initializeScheduler(): boolean {
+    if (!SUBGRAPH_URL) {
+        console.warn("[Scheduler] SUBGRAPH_URL not configured. Scheduled notifications disabled.");
+        return false;
+    }
+
+    client = new GraphQLClient(SUBGRAPH_URL);
+    console.log("[Scheduler] Initialized");
+    return true;
+}
+
+/**
+ * Get active goals from Subgraph
+ */
+async function getActiveGoals(): Promise<PersonalGoal[]> {
+    if (!client) return [];
+
+    const query = gql`
+    query GetActiveGoals {
+      personalGoals(where: { isActive: true }) {
+        id
+        goalId
+        goalName
+        goalAmount
+        currentAmount
+        deadline
+        isActive
+        user {
+          id
+          username
+          fullName
+        }
+      }
+    }
+  `;
+
+    try {
+        const data = await client.request<{ personalGoals: PersonalGoal[] }>(query);
+        return data.personalGoals;
+    } catch (error) {
+        console.error("[Scheduler] Error fetching goals:", error);
+        return [];
+    }
+}
+
+/**
+ * Format amount from wei to human-readable
+ */
+function formatAmount(amountWei: string, decimals = 18): string {
+    const amount = BigInt(amountWei);
+    const divisor = BigInt(10 ** decimals);
+    const whole = amount / divisor;
+    const fraction = amount % divisor;
+    const fractionStr = fraction.toString().padStart(decimals, "0").slice(0, 2);
+    return `$${whole}.${fractionStr}`;
+}
+
+/**
+ * Calculate progress percentage
+ */
+function calculateProgress(current: string, target: string): number {
+    const currentAmount = BigInt(current);
+    const targetAmount = BigInt(target);
+
+    if (targetAmount === BigInt(0)) return 0;
+    return Number((currentAmount * BigInt(100)) / targetAmount);
+}
+
+/**
+ * Check goals and send deadline notifications
+ */
+async function checkGoalDeadlines(): Promise<void> {
+    console.log("[Scheduler] Checking goal deadlines...");
+
+    const goals = await getActiveGoals();
+    const now = Math.floor(Date.now() / 1000);
+
+    for (const goal of goals) {
+        const deadline = parseInt(goal.deadline);
+        const timeUntilDeadline = deadline - now;
+        const daysUntilDeadline = timeUntilDeadline / 86400;
+
+        // 2 days before deadline
+        if (daysUntilDeadline <= 2 && daysUntilDeadline > 1) {
+            const notificationKey = `goal_2days_${goal.id}`;
+
+            if (!sentNotifications.has(notificationKey)) {
+                const progress = calculateProgress(goal.currentAmount, goal.goalAmount);
+                const remaining = formatAmount(
+                    (BigInt(goal.goalAmount) - BigInt(goal.currentAmount)).toString()
+                );
+
+                await sendNotification([goal.user.id], {
+                    title: "Goal Deadline Approaching ⏰",
+                    message: `Your "${goal.goalName}" goal deadline is in 2 days! ${progress}% complete, ${remaining} remaining.`,
+                    type: "goal_deadline_2days",
+                    priority: "medium",
+                    action: { action: "/goals" },
+                    data: { goalId: goal.goalId, deadline: goal.deadline },
+                });
+
+                sentNotifications.add(notificationKey);
+                console.log(`[Scheduler] Sent 2-day reminder for goal ${goal.goalId}`);
+            }
+        }
+
+        // 1 day before deadline
+        if (daysUntilDeadline <= 1 && daysUntilDeadline > 0) {
+            const notificationKey = `goal_1day_${goal.id}`;
+
+            if (!sentNotifications.has(notificationKey)) {
+                const progress = calculateProgress(goal.currentAmount, goal.goalAmount);
+                const remaining = formatAmount(
+                    (BigInt(goal.goalAmount) - BigInt(goal.currentAmount)).toString()
+                );
+
+                await sendNotification([goal.user.id], {
+                    title: "Goal Deadline Tomorrow! ⚡",
+                    message: `Your "${goal.goalName}" goal deadline is tomorrow! ${progress}% complete, ${remaining} remaining.`,
+                    type: "goal_deadline_1day",
+                    priority: "high",
+                    action: { action: "/goals" },
+                    data: { goalId: goal.goalId, deadline: goal.deadline },
+                });
+
+                sentNotifications.add(notificationKey);
+                console.log(`[Scheduler] Sent 1-day reminder for goal ${goal.goalId}`);
+            }
+        }
+
+        // Check for milestone notifications (25%, 50%, 75%)
+        const progress = calculateProgress(goal.currentAmount, goal.goalAmount);
+        const milestones = [25, 50, 75];
+
+        for (const milestone of milestones) {
+            const notificationKey = `goal_milestone_${goal.id}_${milestone}`;
+
+            if (progress >= milestone && progress < milestone + 5 && !sentNotifications.has(notificationKey)) {
+                await sendNotification([goal.user.id], {
+                    title: `Goal Milestone Reached! 🎯`,
+                    message: `You've reached ${milestone}% of your "${goal.goalName}" goal!`,
+                    type: "goal_milestone",
+                    priority: "low",
+                    action: { action: "/goals" },
+                    data: { goalId: goal.goalId, milestone, progress },
+                });
+
+                sentNotifications.add(notificationKey);
+                console.log(`[Scheduler] Sent ${milestone}% milestone for goal ${goal.goalId}`);
+            }
+        }
+
+        // Goal completed notification
+        if (progress >= 100) {
+            const notificationKey = `goal_completed_${goal.id}`;
+
+            if (!sentNotifications.has(notificationKey)) {
+                await sendNotification([goal.user.id], {
+                    title: "Goal Completed! 🎉",
+                    message: `Congratulations! You've completed your "${goal.goalName}" goal!`,
+                    type: "goal_completed",
+                    priority: "medium",
+                    action: { action: "/goals" },
+                    data: { goalId: goal.goalId },
+                });
+
+                sentNotifications.add(notificationKey);
+                console.log(`[Scheduler] Sent completion notification for goal ${goal.goalId}`);
+            }
+        }
+    }
+}
+
+/**
+ * Clean up old notification keys (run weekly)
+ */
+function cleanupSentNotifications(): void {
+    console.log(`[Scheduler] Cleaning up ${sentNotifications.size} notification keys`);
+    sentNotifications.clear();
+}
+
+/**
+ * Start the cron scheduler
+ */
+export function startScheduler(): void {
+    // Check goal deadlines every day at 9 AM
+    const goalCheckCron = process.env.GOAL_CHECK_CRON || "0 9 * * *";
+
+    cron.schedule(goalCheckCron, () => {
+        console.log("[Scheduler] Running daily goal deadline check");
+        checkGoalDeadlines();
+    });
+
+    // Also check every 6 hours for more timely notifications
+    cron.schedule("0 */6 * * *", () => {
+        console.log("[Scheduler] Running 6-hour goal deadline check");
+        checkGoalDeadlines();
+    });
+
+    // Clean up old notification keys every Sunday
+    cron.schedule("0 0 * * 0", () => {
+        cleanupSentNotifications();
+    });
+
+    console.log(`[Scheduler] Started with cron schedule: ${goalCheckCron}`);
+
+    // Run initial check
+    setTimeout(checkGoalDeadlines, 5000);
+}
+
+/**
+ * Get scheduler status
+ */
+export function getSchedulerStatus(): {
+    sentNotificationsCount: number;
+    isRunning: boolean;
+} {
+    return {
+        sentNotificationsCount: sentNotifications.size,
+        isRunning: true,
+    };
+}
