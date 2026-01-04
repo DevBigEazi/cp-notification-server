@@ -188,6 +188,48 @@ router.post("/send", async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /test
+ * Send a test notification to a specific user
+ */
+router.post("/test", async (req: Request, res: Response) => {
+    try {
+        const { userAddress } = req.body as { userAddress: string };
+
+        if (!userAddress) {
+            return res.status(400).json({
+                success: false,
+                error: "Missing required field: userAddress",
+            });
+        }
+
+        const result = await sendNotification([userAddress], {
+            title: "Test Notification",
+            message: "This is a test notification from CirclePot!",
+            type: "system_maintenance",
+            priority: "high",
+        });
+
+        if (result.sent === 0) {
+            return res.status(404).json({
+                success: false,
+                error: "User not subscribed or notification failed",
+                details: result.errors,
+            });
+        }
+
+        res.json({
+            success: true,
+            message: "Test notification sent successfully",
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: "Failed to send test notification",
+        });
+    }
+});
+
+/**
  * GET /vapid-public-key
  * Get the VAPID public key for frontend subscription
  */

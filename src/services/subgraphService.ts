@@ -1,5 +1,4 @@
 import { GraphQLClient, gql } from "graphql-request";
-import { subscriptionStore } from "./subscriptionStore";
 import { sendNotification } from "./pushService";
 
 const SUBGRAPH_URL = process.env.SUBGRAPH_URL || "";
@@ -193,7 +192,7 @@ async function processCircleJoinedEvents(events: CircleJoinedEvent[]): Promise<v
                 message: `${userName} joined "${circleName}"`,
                 type: "circle_member_joined",
                 priority: "medium",
-                action: { action: "/" },
+                action: { action: "/circles" },
                 data: { circleId: event.circleId, newMember: event.user.id },
             });
         }
@@ -228,7 +227,7 @@ async function processPayoutEvents(events: PayoutDistributedEvent[]): Promise<vo
                 message: `${recipientName} received their payout of ${amount}`,
                 type: "circle_member_payout",
                 priority: "low",
-                action: { action: "/" },
+                action: { action: "/circles" },
                 data: { circleId: event.circleId, round: event.round },
             });
         }
@@ -288,7 +287,7 @@ async function processCollateralWithdrawnEvents(events: CollateralWithdrawnEvent
                 message: `${userName} withdrew their collateral`,
                 type: "circle_member_withdrew",
                 priority: "medium",
-                action: { action: "/" },
+                action: { action: "/transactions-history" },
                 data: { circleId: event.circleId },
             });
         }
@@ -327,7 +326,7 @@ async function processVotingInitiatedEvents(events: VotingInitiatedEvent[]): Pro
             message: `Voting has started for your circle. Cast your vote before ${votingEnd.toLocaleDateString()}`,
             type: "vote_required",
             priority: "high",
-            action: { action: "/" },
+            action: { action: "/circles" },
             data: { circleId: event.circleId, votingEndAt: event.votingEndAt },
         });
     }
@@ -371,7 +370,7 @@ async function processMemberForfeitedEvents(events: MemberForfeitedEvent[]): Pro
             message: `You were forfeited from your circle. Deduction: ${amount}`,
             type: "member_forfeited",
             priority: "high",
-            action: { action: "/" },
+            action: { action: "/circles" },
             data: { circleId: event.circleId, round: event.round, amount: event.deductionAmount },
         });
 
@@ -385,7 +384,7 @@ async function processMemberForfeitedEvents(events: MemberForfeitedEvent[]): Pro
                 message: `${forfeitedName} has been forfeited from the circle`,
                 type: "member_forfeited",
                 priority: "medium",
-                action: { action: "/" },
+                action: { action: "/Circles" },
                 data: { circleId: event.circleId, round: event.round },
             });
         }
