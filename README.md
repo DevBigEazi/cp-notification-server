@@ -131,6 +131,12 @@ The server supports these notification types:
 - `system_maintenance` - Maintenance notice
 - `security_alert` - Security notification
 
+## To Do Before Production Deployment
+
+1. **Authentication**: Add API key or JWT authentication
+2. **Logging**: Use proper logging (Winston, Pino)
+3. **Monitoring**: Add health monitoring
+
 ## Testing
 
 Send a test notification:
