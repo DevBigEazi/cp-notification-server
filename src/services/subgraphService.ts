@@ -124,16 +124,37 @@ async function getCircleMembers(circleId: string): Promise<string[]> {
           id
         }
       }
+      circles(where: { circleId: $circleId }) {
+        creator {
+          id
+        }
+      }
     }
   `;
 
     try {
-        const data = await client.request<{ circleJoineds: Array<{ user: { id: string } }> }>(
-            query,
-            { circleId }
-        );
-        return data.circleJoineds.map((cj) => cj.user.id);
+        const data = await client.request<{
+            circleJoineds: Array<{ user: { id: string } }>;
+            circles: Array<{ creator: { id: string } }>;
+        }>(query, { circleId });
+
+        const members = new Set<string>();
+
+        // Add all joiners
+        data.circleJoineds.forEach((cj) => {
+            if (cj.user?.id) members.add(cj.user.id.toLowerCase());
+        });
+
+        // Add creator
+        if (data.circles?.[0]?.creator?.id) {
+            members.add(data.circles[0].creator.id.toLowerCase());
+        }
+
+        const memberList = Array.from(members);
+        console.log(`[SubgraphService] Members for circle ${circleId}:`, memberList);
+        return memberList;
     } catch (error) {
+        console.error(`[SubgraphService] Error fetching circle members for ${circleId}:`, error);
         return [];
     }
 }
@@ -238,22 +259,29 @@ async function processPayoutEvents(events: PayoutDistributedEvent[]): Promise<vo
  * Process contribution events
  */
 async function processContributionEvents(events: ContributionMadeEvent[]): Promise<void> {
+    console.log(`[SubgraphService] Processing ${events.length} contribution events`);
     for (const event of events) {
-        const members = await getCircleMembers(event.circleId);
-        const othersToNotify = members.filter((m) => m.toLowerCase() !== event.user.id.toLowerCase());
+        try {
+            const members = await getCircleMembers(event.circleId);
+            const othersToNotify = members.filter((m) => m.toLowerCase() !== event.user.id.toLowerCase());
 
-        if (othersToNotify.length > 0) {
-            const contributorName = event.user.username || "A member";
-            const amount = formatAmount(event.amount);
+            console.log(`[SubgraphService] Contribution by ${event.user.id} in circle ${event.circleId}. Notifying ${othersToNotify.length} members.`);
 
-            await sendNotification(othersToNotify, {
-                title: "Contribution Made ✅",
-                message: `${contributorName} contributed ${amount} (Round ${event.round})`,
-                type: "circle_member_contributed",
-                priority: "low",
-                action: { action: "/" },
-                data: { circleId: event.circleId, round: event.round },
-            });
+            if (othersToNotify.length > 0) {
+                const contributorName = event.user.username || "A member";
+                const amount = formatAmount(event.amount);
+
+                await sendNotification(othersToNotify, {
+                    title: "Contribution Made ✅",
+                    message: `${contributorName} contributed ${amount} (Round ${event.round})`,
+                    type: "circle_member_contributed",
+                    priority: "low",
+                    action: { action: "/" },
+                    data: { circleId: event.circleId, round: event.round },
+                });
+            }
+        } catch (error) {
+            console.error(`[SubgraphService] Error processing contribution event:`, error);
         }
     }
 }
@@ -539,6 +567,20 @@ async function queryNewEvents(): Promise<{
             _meta: { block: { number: number; timestamp: number } };
         }>(query, { lastTimestamp: lastProcessedTimestamp.toString() });
 
+        const totalEvents =
+            data.circleJoineds.length +
+            data.payoutDistributeds.length +
+            data.contributionMades.length +
+            data.collateralWithdrawns.length +
+            data.memberInviteds.length +
+            data.votingInitiateds.length +
+            data.voteExecuteds.length +
+            data.memberForfeiteds.length;
+
+        if (totalEvents > 0) {
+            console.log(`[SubgraphService] Found ${totalEvents} new events since timestamp ${lastProcessedTimestamp}`);
+        }
+
         return {
             circleJoineds: data.circleJoineds,
             payoutDistributeds: data.payoutDistributeds,
@@ -551,6 +593,7 @@ async function queryNewEvents(): Promise<{
             latestTimestamp: data._meta?.block?.timestamp || lastProcessedTimestamp,
         };
     } catch (error) {
+        console.error("[SubgraphService] Error querying new events:", error);
         return {
             circleJoineds: [],
             payoutDistributeds: [],
