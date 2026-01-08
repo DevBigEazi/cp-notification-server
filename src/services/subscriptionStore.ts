@@ -59,9 +59,7 @@ class SubscriptionStore {
      */
     async getAll(): Promise<UserSubscription[]> {
         try {
-            const subscriptions = await Subscription.find({
-                "preferences.pushEnabled": { $ne: false },
-            });
+            const subscriptions = await Subscription.find({});
 
             return subscriptions.map((s: ISubscription) => this.toUserSubscription(s));
         } catch (error) {
@@ -80,7 +78,6 @@ class SubscriptionStore {
         try {
             const subscriptions = await Subscription.find({
                 userAddress: { $in: normalizedAddresses },
-                "preferences.pushEnabled": { $ne: false },
             });
 
             return subscriptions.map((s: ISubscription) => this.toUserSubscription(s));

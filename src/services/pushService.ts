@@ -2,16 +2,14 @@ import webpush from "web-push";
 import { subscriptionStore } from "./subscriptionStore";
 import type {
     NotificationType,
-    NotificationPriority,
     NotificationPayload,
     UserSubscription,
-    NOTIFICATION_PREFERENCE_KEYS,
 } from "../types";
 
 // Configure web-push with VAPID keys
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY!;
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY!;
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:notifications@circlepot.com";
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:adesholatajudeen1@gmail.com";
 
 let isConfigured = false;
 
@@ -20,14 +18,17 @@ let isConfigured = false;
  */
 export function initializePushService(): boolean {
     if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+        console.error("[PushService] FAILED to initialize: VAPID_PUBLIC_KEY or VAPID_PRIVATE_KEY is missing in .env");
         return false;
     }
 
     try {
         webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
         isConfigured = true;
+        console.log("[PushService] Successfully initialized with VAPID details");
         return true;
-    } catch (error) {
+    } catch (error: any) {
+        console.error("[PushService] FAILED to set VAPID details:", error.message);
         return false;
     }
 }
@@ -92,6 +93,8 @@ async function sendToUser(
 
     // Check if user has this notification type enabled
     if (!isNotificationEnabled(subscription.preferences, payload.type)) {
+        const reason = subscription.preferences.pushEnabled === false ? "Push notifications globally disabled" : `Type "${payload.type}" disabled`;
+        console.log(`[PushService] Skipping ${subscription.userAddress}: ${reason}`);
         return { success: false, error: "Notification type disabled by user" };
     }
 
@@ -119,9 +122,13 @@ async function sendToUser(
         await webpush.sendNotification(pushSubscription, pushPayload);
         return { success: true };
     } catch (error: any) {
-        console.error(`[PushService] Error sending to ${subscription.userAddress}:`, error.message);
-        // Remove invalid subscriptions
+        const status = error.statusCode || "unknown";
+        const body = error.body || "no body";
+        console.error(`[PushService] Error sending to ${subscription.userAddress}: Status ${status}, Message: ${error.message}, Body: ${body}`);
+
+        // Remove invalid subscriptions (404 Not Found, 410 Gone)
         if (error.statusCode === 404 || error.statusCode === 410) {
+            console.log(`[PushService] Removing expired/invalid subscription for ${subscription.userAddress}`);
             subscriptionStore.remove(subscription.userAddress);
         }
 
@@ -140,9 +147,11 @@ export async function sendNotification(
     const results = { sent: 0, failed: 0, errors: [] as string[] };
 
     for (const userAddress of userAddresses) {
-        const subscription = subscriptions.find(s => s.userAddress.toLowerCase() === userAddress.toLowerCase());
+        const normalizedAddr = userAddress.toLowerCase();
+        const subscription = subscriptions.find(s => s.userAddress.toLowerCase() === normalizedAddr);
 
         if (!subscription) {
+            console.warn(`[PushService] Skipping ${normalizedAddr}: No subscription found in database. User must "Allow Notifications" on frontend.`);
             results.failed++;
             continue;
         }
@@ -158,6 +167,9 @@ export async function sendNotification(
         }
     }
 
+    if (results.failed > 0) {
+        console.log(`[PushService] Batch Summary: ${results.sent} sent, ${results.failed} failed.`);
+    }
 
     return results;
 }
