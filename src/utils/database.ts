@@ -9,7 +9,6 @@ let isConnected = false;
  */
 export async function connectDatabase(): Promise<boolean> {
     if (isConnected) {
-        console.log("[MongoDB] Already connected");
         return true;
     }
 
@@ -22,27 +21,22 @@ export async function connectDatabase(): Promise<boolean> {
         });
 
         isConnected = true;
-        console.log("[MongoDB] Connected successfully to:", MONGODB_URI.replace(/\/\/[^:]+:[^@]+@/, "//***:***@")); // Hide credentials in logs
 
         // Handle connection events
         mongoose.connection.on("error", (err: Error) => {
-            console.error("[MongoDB] Connection error:", err);
             isConnected = false;
         });
 
         mongoose.connection.on("disconnected", () => {
-            console.warn("[MongoDB] Disconnected");
             isConnected = false;
         });
 
         mongoose.connection.on("reconnected", () => {
-            console.log("[MongoDB] Reconnected");
             isConnected = true;
         });
 
         return true;
     } catch (error) {
-        console.error("[MongoDB] Failed to connect:", error);
         return false;
     }
 }
@@ -56,9 +50,7 @@ export async function disconnectDatabase(): Promise<void> {
     try {
         await mongoose.disconnect();
         isConnected = false;
-        console.log("[MongoDB] Disconnected successfully");
     } catch (error) {
-        console.error("[MongoDB] Error disconnecting:", error);
     }
 }
 

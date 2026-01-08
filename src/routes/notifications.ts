@@ -230,6 +230,44 @@ router.post("/test", async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /simulate-event
+ * Simulate a subgraph event for testing (development only)
+ */
+router.post("/simulate-event", async (req: Request, res: Response) => {
+    try {
+        const { eventType, data } = req.body;
+
+
+        const subgraphService = require("../services/subgraphService");
+
+        // Map eventType to the internal processing function name
+        const functionMap: Record<string, string> = {
+            "contribution": "processContributionEvents",
+            "payout": "processPayoutEvents",
+            "join": "processCircleJoinedEvents",
+        };
+
+        const procFileName = functionMap[eventType];
+        if (!procFileName || typeof subgraphService[procFileName] !== 'function') {
+            return res.status(400).json({
+                success: false,
+                error: `Unknown or non-exported event type: ${eventType}. Mode: ${procFileName}`
+            });
+        }
+
+        // Execute the processing function with mock data
+        await subgraphService[procFileName]([data]);
+
+        res.json({
+            success: true,
+            message: `Simulation request processed for ${eventType}.`
+        });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
  * GET /vapid-public-key
  * Get the VAPID public key for frontend subscription
  */

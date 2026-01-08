@@ -22,7 +22,7 @@ const NotificationPreferencesSchema = new Schema({
     // Circle notifications
     circleMemberJoined: { type: Boolean, default: true },
     circleMemberPayout: { type: Boolean, default: true },
-    circleMemberContributed: { type: Boolean, default: false },
+    circleMemberContributed: { type: Boolean, default: true },
     circleMemberWithdrew: { type: Boolean, default: true },
     circleStarted: { type: Boolean, default: true },
     circleCompleted: { type: Boolean, default: true },
