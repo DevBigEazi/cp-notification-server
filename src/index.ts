@@ -27,6 +27,7 @@ app.use(
                 return callback(null, true);
             }
 
+            console.warn(`[CORS] Blocked request from origin: ${origin}`);
             return callback(new Error("Not allowed by CORS"), false);
         },
         credentials: true,
