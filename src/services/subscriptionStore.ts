@@ -32,11 +32,9 @@ class SubscriptionStore {
                 }
             );
 
-            console.log(`[SubscriptionStore] Upserted subscription for ${normalizedAddress}`);
 
             return this.toUserSubscription(result);
         } catch (error) {
-            console.error(`[SubscriptionStore] Error upserting subscription:`, error);
             return null;
         }
     }
@@ -52,7 +50,6 @@ class SubscriptionStore {
 
             return subscription ? this.toUserSubscription(subscription) : null;
         } catch (error) {
-            console.error(`[SubscriptionStore] Error getting subscription:`, error);
             return null;
         }
     }
@@ -68,7 +65,6 @@ class SubscriptionStore {
 
             return subscriptions.map((s: ISubscription) => this.toUserSubscription(s));
         } catch (error) {
-            console.error(`[SubscriptionStore] Error getting all subscriptions:`, error);
             return [];
         }
     }
@@ -89,7 +85,6 @@ class SubscriptionStore {
 
             return subscriptions.map((s: ISubscription) => this.toUserSubscription(s));
         } catch (error) {
-            console.error(`[SubscriptionStore] Error getting many subscriptions:`, error);
             return [];
         }
     }
@@ -117,14 +112,11 @@ class SubscriptionStore {
             );
 
             if (!result) {
-                console.warn(`[SubscriptionStore] No subscription found for ${normalizedAddress}`);
                 return null;
             }
 
-            console.log(`[SubscriptionStore] Updated preferences for ${normalizedAddress}`);
             return this.toUserSubscription(result);
         } catch (error) {
-            console.error(`[SubscriptionStore] Error updating preferences:`, error);
             return null;
         }
     }
@@ -141,13 +133,11 @@ class SubscriptionStore {
             });
 
             if (result.deletedCount > 0) {
-                console.log(`[SubscriptionStore] Removed subscription for ${normalizedAddress}`);
                 return true;
             }
 
             return false;
         } catch (error) {
-            console.error(`[SubscriptionStore] Error removing subscription:`, error);
             return false;
         }
     }
@@ -162,7 +152,6 @@ class SubscriptionStore {
             });
             return count > 0;
         } catch (error) {
-            console.error(`[SubscriptionStore] Error checking subscription:`, error);
             return false;
         }
     }
@@ -174,7 +163,6 @@ class SubscriptionStore {
         try {
             return await Subscription.countDocuments({});
         } catch (error) {
-            console.error(`[SubscriptionStore] Error counting subscriptions:`, error);
             return 0;
         }
     }

@@ -27,7 +27,6 @@ app.use(
                 return callback(null, true);
             }
 
-            console.warn(`[CORS] Blocked request from origin: ${origin}`);
             return callback(new Error("Not allowed by CORS"), false);
         },
         credentials: true,
@@ -36,9 +35,7 @@ app.use(
 
 app.use(express.json());
 
-// Request logging
 app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
     next();
 });
 
@@ -57,7 +54,6 @@ app.use("/api/notifications", notificationRoutes);
 
 // Error handling
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    console.error("[Error]", err);
     res.status(500).json({
         success: false,
         error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
@@ -90,31 +86,12 @@ async function main() {
 
     // Initialize push service
     const pushReady = initializePushService();
-    if (!pushReady) {
-        console.error("⚠️  Push service not configured. Notifications will fail.");
-        console.log("   Run 'npm run generate-vapid' to generate VAPID keys.");
-        console.log();
-    } else {
-        console.log("✅ Push service initialized");
-    }
 
     // Initialize subgraph service
     const subgraphReady = initializeSubgraphService();
-    if (!subgraphReady) {
-        console.warn("⚠️  Subgraph service not configured. Event polling disabled.");
-        console.log();
-    } else {
-        console.log("✅ Subgraph service initialized");
-    }
 
     // Initialize scheduler
     const schedulerReady = initializeScheduler();
-    if (!schedulerReady) {
-        console.warn("⚠️  Scheduler not configured. Goal deadline notifications disabled.");
-        console.log();
-    } else {
-        console.log("✅ Scheduler initialized");
-    }
 
     // Start server
     app.listen(PORT, () => {

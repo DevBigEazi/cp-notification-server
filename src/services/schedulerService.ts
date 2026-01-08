@@ -14,12 +14,10 @@ const sentNotifications = new Set<string>();
  */
 export function initializeScheduler(): boolean {
     if (!SUBGRAPH_URL) {
-        console.warn("[Scheduler] SUBGRAPH_URL not configured. Scheduled notifications disabled.");
         return false;
     }
 
     client = new GraphQLClient(SUBGRAPH_URL);
-    console.log("[Scheduler] Initialized");
     return true;
 }
 
@@ -52,7 +50,6 @@ async function getActiveGoals(): Promise<PersonalGoal[]> {
         const data = await client.request<{ personalGoals: PersonalGoal[] }>(query);
         return data.personalGoals;
     } catch (error) {
-        console.error("[Scheduler] Error fetching goals:", error);
         return [];
     }
 }
@@ -84,7 +81,6 @@ function calculateProgress(current: string, target: string): number {
  * Check goals and send deadline notifications
  */
 async function checkGoalDeadlines(): Promise<void> {
-    console.log("[Scheduler] Checking goal deadlines...");
 
     const goals = await getActiveGoals();
     const now = Math.floor(Date.now() / 1000);
@@ -114,7 +110,6 @@ async function checkGoalDeadlines(): Promise<void> {
                 });
 
                 sentNotifications.add(notificationKey);
-                console.log(`[Scheduler] Sent 2-day reminder for goal ${goal.goalId}`);
             }
         }
 
@@ -138,7 +133,6 @@ async function checkGoalDeadlines(): Promise<void> {
                 });
 
                 sentNotifications.add(notificationKey);
-                console.log(`[Scheduler] Sent 1-day reminder for goal ${goal.goalId}`);
             }
         }
 
@@ -160,7 +154,6 @@ async function checkGoalDeadlines(): Promise<void> {
                 });
 
                 sentNotifications.add(notificationKey);
-                console.log(`[Scheduler] Sent ${milestone}% milestone for goal ${goal.goalId}`);
             }
         }
 
@@ -179,7 +172,6 @@ async function checkGoalDeadlines(): Promise<void> {
                 });
 
                 sentNotifications.add(notificationKey);
-                console.log(`[Scheduler] Sent completion notification for goal ${goal.goalId}`);
             }
         }
     }
@@ -189,7 +181,6 @@ async function checkGoalDeadlines(): Promise<void> {
  * Clean up old notification keys (run weekly)
  */
 function cleanupSentNotifications(): void {
-    console.log(`[Scheduler] Cleaning up ${sentNotifications.size} notification keys`);
     sentNotifications.clear();
 }
 
@@ -201,13 +192,11 @@ export function startScheduler(): void {
     const goalCheckCron = process.env.GOAL_CHECK_CRON || "0 9 * * *";
 
     cron.schedule(goalCheckCron, () => {
-        console.log("[Scheduler] Running daily goal deadline check");
         checkGoalDeadlines();
     });
 
     // Also check every 6 hours for more timely notifications
     cron.schedule("0 */6 * * *", () => {
-        console.log("[Scheduler] Running 6-hour goal deadline check");
         checkGoalDeadlines();
     });
 
@@ -216,7 +205,6 @@ export function startScheduler(): void {
         cleanupSentNotifications();
     });
 
-    console.log(`[Scheduler] Started with cron schedule: ${goalCheckCron}`);
 
     // Run initial check
     setTimeout(checkGoalDeadlines, 5000);
