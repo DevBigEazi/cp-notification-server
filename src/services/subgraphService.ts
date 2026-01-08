@@ -155,6 +155,7 @@ async function getCircleMembers(circleId: string): Promise<string[]> {
         const memberList = Array.from(members);
         return memberList;
     } catch (error) {
+        console.error(`[SubgraphService] Error fetching circle members for ${circleId}:`, error);
         return [];
     }
 }
@@ -283,6 +284,7 @@ export async function processContributionEvents(events: ContributionMadeEvent[])
                 });
             }
         } catch (error) {
+            console.error(`[SubgraphService] Error processing contribution event:`, error);
         }
     }
 }
@@ -595,6 +597,7 @@ async function queryNewEvents(): Promise<{
             latestTimestamp: data._meta?.block?.timestamp || lastProcessedTimestamp,
         };
     } catch (error) {
+        console.error("[SubgraphService] Error querying new events:", error);
         return {
             circleJoineds: [],
             payoutDistributeds: [],
@@ -664,6 +667,7 @@ export async function pollAndProcess(retryCount = 0): Promise<void> {
             lastProcessedTimestamp = events.latestTimestamp;
         }
     } catch (error: any) {
+        console.error("[SubgraphService] Error polling and processing events:", error);
         // Retry logic for transient errors (like SSL bad record mac)
         if (retryCount < 3) {
             const delay = Math.pow(2, retryCount) * 1000;

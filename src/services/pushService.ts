@@ -119,6 +119,7 @@ async function sendToUser(
         await webpush.sendNotification(pushSubscription, pushPayload);
         return { success: true };
     } catch (error: any) {
+        console.error(`[PushService] Error sending to ${subscription.userAddress}:`, error.message);
         // Remove invalid subscriptions
         if (error.statusCode === 404 || error.statusCode === 410) {
             subscriptionStore.remove(subscription.userAddress);
