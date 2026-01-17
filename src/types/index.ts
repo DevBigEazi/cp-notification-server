@@ -2,6 +2,7 @@
 export type NotificationType =
     // Circle notifications
     | "circle_member_joined"
+    | "circle_payout"
     | "circle_member_payout"
     | "circle_member_contributed"
     | "circle_member_withdrew"
@@ -20,17 +21,22 @@ export type NotificationType =
     | "goal_completed"
     | "goal_contribution_due"
     | "goal_milestone"
+    | "goal_reminder"
     // Social notifications
     | "circle_invite"
     | "invite_accepted"
     // Financial notifications
     | "payment_received"
+    | "payment_late"
     | "credit_score_changed"
     | "withdrawal_fee_applied"
     | "collateral_returned"
     // System notifications
     | "system_maintenance"
-    | "security_alert";
+    | "system_update"
+    | "security_alert"
+    | "circle_joined"
+    | "circle_voting";
 
 export type NotificationPriority = "high" | "medium" | "low";
 
@@ -58,11 +64,16 @@ export interface NotificationPreferences {
     circleInvite: boolean;
     inviteAccepted: boolean;
     paymentReceived: boolean;
+    paymentLate: boolean;
     creditScoreChanged: boolean;
     withdrawalFeeApplied: boolean;
     collateralReturned: boolean;
     systemMaintenance: boolean;
+    systemUpdate: boolean;
     securityAlert: boolean;
+    circleJoined: boolean;
+    circleVoting: boolean;
+    goalReminder: boolean;
 }
 
 export interface PushSubscriptionKeys {
@@ -123,6 +134,34 @@ export interface SubgraphCircle {
     state: number;
     currentMembers: string;
     maxMembers: string;
+    currentRound: string;
+    nextDeadline?: string;
+    contributionAmount: string;
+}
+
+export interface ReputationEvent {
+    id: string;
+    user: SubgraphUser;
+    points: string;
+    reason: string;
+    timestamp: string;
+}
+
+export interface CategoryEvent {
+    id: string;
+    user: SubgraphUser;
+    oldCategory: number;
+    newCategory: number;
+    timestamp: string;
+}
+
+export interface ReferralRewardEvent {
+    id: string;
+    referrer: SubgraphUser;
+    referee: SubgraphUser;
+    rewardAmount: string;
+    token: string;
+    timestamp: string;
 }
 
 export interface CircleJoinedEvent {
@@ -137,9 +176,10 @@ export interface CircleJoinedEvent {
 export interface PayoutEvent {
     id: string;
     circleId: string;
-    recipient: SubgraphUser;
+    user: SubgraphUser;
     payoutAmount: string;
     round: string;
+    nextRoundDeadline?: string;
     timestamp: string;
     blockNumber: string;
 }
@@ -147,7 +187,7 @@ export interface PayoutEvent {
 export interface ContributionEvent {
     id: string;
     circleId: string;
-    contributor: SubgraphUser;
+    user: SubgraphUser;
     amount: string;
     round: string;
     circleName?: string;
@@ -225,14 +265,15 @@ export interface CircleMember {
 export const NOTIFICATION_PREFERENCE_KEYS: Record<NotificationType, keyof NotificationPreferences> = {
     circle_member_joined: "circleMemberJoined",
     circle_member_payout: "circleMemberPayout",
+    circle_payout: "circleMemberPayout",
     circle_member_contributed: "circleMemberContributed",
     circle_member_withdrew: "circleMemberWithdrew",
     circle_started: "circleStarted",
     circle_completed: "circleCompleted",
     circle_dead: "circleDead",
     contribution_due: "contributionDue",
-    vote_required: "voteRequired",
-    vote_executed: "voteExecuted",
+    vote_required: "circleVoting",
+    vote_executed: "circleVoting",
     member_forfeited: "memberForfeited",
     late_payment_warning: "latePaymentWarning",
     position_assigned: "positionAssigned",
@@ -241,12 +282,17 @@ export const NOTIFICATION_PREFERENCE_KEYS: Record<NotificationType, keyof Notifi
     goal_completed: "goalCompleted",
     goal_contribution_due: "goalContributionDue",
     goal_milestone: "goalMilestone",
+    goal_reminder: "goalReminder",
     circle_invite: "circleInvite",
     invite_accepted: "inviteAccepted",
     payment_received: "paymentReceived",
+    payment_late: "paymentLate",
     credit_score_changed: "creditScoreChanged",
     withdrawal_fee_applied: "withdrawalFeeApplied",
     collateral_returned: "collateralReturned",
     system_maintenance: "systemMaintenance",
+    system_update: "systemUpdate",
     security_alert: "securityAlert",
+    circle_joined: "circleJoined",
+    circle_voting: "circleVoting",
 };

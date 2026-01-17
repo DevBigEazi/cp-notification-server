@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import { GraphQLClient, gql } from "graphql-request";
 import { sendNotification } from "./pushService";
-import type { PersonalGoal } from "../types";
+import type { PersonalGoal, SubgraphCircle, ContributionEvent, CircleJoinedEvent } from "../types";
 
 const SUBGRAPH_URL = process.env.SUBGRAPH_URL || "";
 let client: GraphQLClient | null = null;
@@ -17,7 +17,16 @@ export function initializeScheduler(): boolean {
         return false;
     }
 
-    client = new GraphQLClient(SUBGRAPH_URL);
+    const SUBGRAPH_API_KEY = process.env.SUBGRAPH_API_KEY || "";
+    const headers: Record<string, string> = {
+        'User-Agent': 'CirclePot-Notification-Server/1.0.0'
+    };
+
+    if (SUBGRAPH_API_KEY) {
+        headers['Authorization'] = `Bearer ${SUBGRAPH_API_KEY}`;
+    }
+
+    client = new GraphQLClient(SUBGRAPH_URL, { headers });
     return true;
 }
 
@@ -178,6 +187,106 @@ async function checkGoalDeadlines(): Promise<void> {
 }
 
 /**
+ * Check Circle deadlines and send contribution reminders
+ */
+async function checkCircleDeadlines(): Promise<void> {
+    if (!client) return;
+
+    // 1. Get all active circles
+    const circlesQuery = gql`
+    query GetActiveCircles {
+      circles(where: { state: 3 }) {
+        id
+        circleId
+        circleName
+        currentRound
+        nextDeadline
+        contributionAmount
+      }
+    }
+  `;
+
+    try {
+        const circlesData = await client.request<{ circles: SubgraphCircle[] }>(circlesQuery);
+        const circles = circlesData.circles;
+        const now = Math.floor(Date.now() / 1000);
+
+        for (const circle of circles) {
+            if (!circle.nextDeadline) continue;
+
+            const deadline = parseInt(circle.nextDeadline);
+            const timeUntilDeadline = deadline - now;
+            const hoursUntilDeadline = timeUntilDeadline / 3600;
+
+            // Only check if deadline is within 24 hours
+            if (hoursUntilDeadline <= 24 && hoursUntilDeadline > 0) {
+                // 2. Get all members of this circle
+                const membersQuery = gql`
+          query GetCircleMembers($circleId: BigInt!) {
+            circleJoineds(where: { circleId: $circleId }) {
+              user {
+                id
+              }
+            }
+          }
+        `;
+                const membersData = await client.request<{ circleJoineds: CircleJoinedEvent[] }>(membersQuery, {
+                    circleId: circle.circleId
+                });
+                const memberAddresses = membersData.circleJoineds.map(m => m.user.id);
+
+                // 3. Get who has already contributed this round
+                const contributionsQuery = gql`
+          query GetRoundContributions($circleId: BigInt!, $round: BigInt!) {
+            contributionMades(where: { circleId: $circleId, round: $round }) {
+              user {
+                id
+              }
+            }
+          }
+        `;
+                const contributionsData = await client.request<{ contributionMades: ContributionEvent[] }>(contributionsQuery, {
+                    circleId: circle.circleId,
+                    round: circle.currentRound
+                });
+                const contributedAddresses = new Set(contributionsData.contributionMades.map(c => c.user.id));
+
+                // 4. Filter members who haven't contributed
+                const pendingMembers = memberAddresses.filter(addr => !contributedAddresses.has(addr));
+
+                if (pendingMembers.length === 0) continue;
+
+                // 5. Send notifications
+                const isFinalWarning = hoursUntilDeadline <= 1;
+                const notificationType = isFinalWarning ? "late_payment_warning" : "contribution_due";
+                const priority = isFinalWarning ? "high" : "medium";
+                const timeStr = isFinalWarning ? "less than 1 hour" : "24 hours";
+                const notificationKey = `circle_${notificationType}_${circle.id}_${circle.currentRound}`;
+
+                if (!sentNotifications.has(notificationKey)) {
+                    await sendNotification(pendingMembers, {
+                        title: isFinalWarning ? "Urgent: Circle Payment Due! ⚡" : "Circle Contribution Reminder ⏰",
+                        message: `Your payment for "${circle.circleName}" is due in ${timeStr}. Pay now to avoid reputation loss!`,
+                        type: notificationType,
+                        priority: priority,
+                        action: { action: `/circles/${circle.circleId}` },
+                        data: { circleId: circle.circleId, round: circle.currentRound, deadline: circle.nextDeadline },
+                    });
+
+                    sentNotifications.add(notificationKey);
+                }
+            }
+        }
+    } catch (error: any) {
+        console.error("Error checking circle deadlines. This usually indicates a network issue or rate limiting by The Graph gateway.");
+        if (error.message.includes('SSL') || error.message.includes('EPROTO')) {
+            console.error("SSL/Protocol Error detected. Tip: If you are on MacOS, try disabling Apple Private Relay or use a stable network.");
+        }
+        console.error(`Details: ${error.message}`);
+    }
+}
+
+/**
  * Clean up old notification keys (run weekly)
  */
 function cleanupSentNotifications(): void {
@@ -193,11 +302,13 @@ export function startScheduler(): void {
 
     cron.schedule(goalCheckCron, () => {
         checkGoalDeadlines();
+        checkCircleDeadlines();
     });
 
     // Also check every 6 hours for more timely notifications
     cron.schedule("0 */6 * * *", () => {
         checkGoalDeadlines();
+        checkCircleDeadlines();
     });
 
     // Clean up old notification keys every Sunday
@@ -207,7 +318,10 @@ export function startScheduler(): void {
 
 
     // Run initial check
-    setTimeout(checkGoalDeadlines, 5000);
+    setTimeout(() => {
+        checkGoalDeadlines();
+        checkCircleDeadlines();
+    }, 5000);
 }
 
 /**
