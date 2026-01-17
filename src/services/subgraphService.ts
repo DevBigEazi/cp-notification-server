@@ -575,11 +575,14 @@ export async function processReferralEvents(events: ReferralRewardEvent[]): Prom
     for (const event of events) {
         if (!event.referrer?.id) continue;
         const amount = formatAmount(event.rewardAmount);
-        const friend = event.referee.username || "A friend";
+        const friend = event.referee?.username || "A friend";
+        const message = event.referee
+            ? `You just earned ${amount} because ${friend} joined Circlepot!`
+            : `You just earned a referral bonus of ${amount}!`;
 
         await sendNotification([event.referrer.id], {
             title: "Referral Bonus! 🎁",
-            message: `You just earned ${amount} because ${friend} completed their first goal!`,
+            message: message,
             type: "payment_received",
             priority: "high",
             action: { action: "/profile" },

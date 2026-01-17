@@ -158,7 +158,7 @@ export interface CategoryEvent {
 export interface ReferralRewardEvent {
     id: string;
     referrer: SubgraphUser;
-    referee: SubgraphUser;
+    referee?: SubgraphUser;
     rewardAmount: string;
     token: string;
     timestamp: string;
