@@ -37,6 +37,7 @@ interface PayoutDistributedEvent {
     circleId: string;
     round: string;
     payoutAmount: string;
+    nextRoundDeadline?: string;
     transaction: TransactionData;
 }
 
@@ -94,6 +95,30 @@ interface MemberForfeitedEvent {
     transaction: TransactionData;
 }
 
+interface ReputationEvent {
+    id: string;
+    user: UserData;
+    points: string;
+    reason: string;
+    transaction: TransactionData;
+}
+
+interface CategoryEvent {
+    id: string;
+    user: UserData;
+    oldCategory: number;
+    newCategory: number;
+    transaction: TransactionData;
+}
+
+interface ReferralRewardEvent {
+    id: string;
+    referrer: UserData;
+    referee: UserData;
+    rewardAmount: string;
+    transaction: TransactionData;
+}
+
 interface CircleData {
     circleId: string;
     circleName: string;
@@ -108,7 +133,10 @@ export function initializeSubgraphService(): boolean {
         return false;
     }
 
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = {
+        'User-Agent': 'CirclePot-Notification-Server/1.0.0'
+    };
+
     if (SUBGRAPH_API_KEY) {
         headers['Authorization'] = `Bearer ${SUBGRAPH_API_KEY}`;
     }
@@ -497,6 +525,69 @@ export async function processMemberForfeitedEvents(events: MemberForfeitedEvent[
     }
 }
 
+/**
+ * Process reputation events
+ */
+export async function processReputationEvents(events: ReputationEvent[], isIncrease: boolean): Promise<void> {
+    for (const event of events) {
+        if (!event.user?.id) continue;
+        const emoji = isIncrease ? "⭐️" : "⚠️";
+        const title = isIncrease ? "Reputation Boost!" : "Reputation Decreased";
+
+        await sendNotification([event.user.id], {
+            title: `${title} ${emoji}`,
+            message: `Your reputation ${isIncrease ? "increased" : "decreased"} by ${event.points} points. Reason: ${event.reason}`,
+            type: "credit_score_changed",
+            priority: isIncrease ? "medium" : "high",
+            action: { action: "/profile" },
+            data: { points: event.points, reason: event.reason },
+        });
+    }
+}
+
+/**
+ * Process category change events
+ */
+export async function processCategoryEvents(events: CategoryEvent[]): Promise<void> {
+    const categories = ["Newbie", "Basic", "Bronze", "Silver", "Gold", "Platinum"];
+    for (const event of events) {
+        if (!event.user?.id) continue;
+        const newCat = categories[event.newCategory] || "Elite";
+        const improved = event.newCategory > event.oldCategory;
+
+        await sendNotification([event.user.id], {
+            title: improved ? "Category Level Up! 📈" : "Category Changed",
+            message: improved
+                ? `Congratulations! You've been promoted to the ${newCat} category.`
+                : `Your credit category has changed to ${newCat}.`,
+            type: "credit_score_changed",
+            priority: "high",
+            action: { action: "/profile" },
+            data: { newCategory: event.newCategory },
+        });
+    }
+}
+
+/**
+ * Process referral reward events
+ */
+export async function processReferralEvents(events: ReferralRewardEvent[]): Promise<void> {
+    for (const event of events) {
+        if (!event.referrer?.id) continue;
+        const amount = formatAmount(event.rewardAmount);
+        const friend = event.referee.username || "A friend";
+
+        await sendNotification([event.referrer.id], {
+            title: "Referral Bonus! 🎁",
+            message: `You just earned ${amount} because ${friend} completed their first goal!`,
+            type: "payment_received",
+            priority: "high",
+            action: { action: "/profile" },
+            data: { amount: event.rewardAmount },
+        });
+    }
+}
+
 
 /**
  * Query for new events since last timestamp
@@ -510,6 +601,10 @@ async function queryNewEvents(): Promise<{
     votingInitiateds: VotingInitiatedEvent[];
     voteExecuteds: VoteExecutedEvent[];
     memberForfeiteds: MemberForfeitedEvent[];
+    reputationIncreases: ReputationEvent[];
+    reputationDecreases: ReputationEvent[];
+    categoryChanges: CategoryEvent[];
+    referralRewards: ReferralRewardEvent[];
     latestTimestamp: number;
 }> {
     if (!client) {
@@ -522,6 +617,10 @@ async function queryNewEvents(): Promise<{
             votingInitiateds: [],
             voteExecuteds: [],
             memberForfeiteds: [],
+            reputationIncreases: [],
+            reputationDecreases: [],
+            categoryChanges: [],
+            referralRewards: [],
             latestTimestamp: lastProcessedTimestamp,
         };
     }
@@ -624,6 +723,42 @@ async function queryNewEvents(): Promise<{
         deductionAmount
         transaction { blockNumber blockTimestamp transactionHash }
       }
+      reputationIncreaseds(
+        where: { transaction_: { blockTimestamp_gt: $lastTimestamp } }
+      ) {
+        id
+        user { id username fullName }
+        points
+        reason
+        transaction { blockTimestamp }
+      }
+      reputationDecreaseds(
+        where: { transaction_: { blockTimestamp_gt: $lastTimestamp } }
+      ) {
+        id
+        user { id username fullName }
+        points
+        reason
+        transaction { blockTimestamp }
+      }
+      scoreCategoryChangeds(
+        where: { transaction_: { blockTimestamp_gt: $lastTimestamp } }
+      ) {
+        id
+        user { id username fullName }
+        oldCategory
+        newCategory
+        transaction { blockTimestamp }
+      }
+      referralRewardPaids(
+        where: { transaction_: { blockTimestamp_gt: $lastTimestamp } }
+      ) {
+        id
+        referrer { id username fullName }
+        referee { id username fullName }
+        rewardAmount
+        transaction { blockTimestamp }
+      }
       _meta {
         block {
           number
@@ -634,6 +769,8 @@ async function queryNewEvents(): Promise<{
   `;
 
     try {
+        if (!client) throw new Error("GraphQL client not initialized");
+
         const data = await client.request<{
             circleJoineds: CircleJoinedEvent[];
             payoutDistributeds: PayoutDistributedEvent[];
@@ -643,6 +780,10 @@ async function queryNewEvents(): Promise<{
             votingInitiateds: VotingInitiatedEvent[];
             voteExecuteds: VoteExecutedEvent[];
             memberForfeiteds: MemberForfeitedEvent[];
+            reputationIncreaseds: ReputationEvent[];
+            reputationDecreaseds: ReputationEvent[];
+            scoreCategoryChangeds: CategoryEvent[];
+            referralRewardPaids: ReferralRewardEvent[];
             _meta: { block: { number: number; timestamp: number } };
         }>(query, { lastTimestamp: lastProcessedTimestamp.toString() });
 
@@ -654,7 +795,11 @@ async function queryNewEvents(): Promise<{
             data.memberInviteds.length +
             data.votingInitiateds.length +
             data.voteExecuteds.length +
-            data.memberForfeiteds.length;
+            data.memberForfeiteds.length +
+            (data.reputationIncreaseds?.length || 0) +
+            (data.reputationDecreaseds?.length || 0) +
+            (data.scoreCategoryChangeds?.length || 0) +
+            (data.referralRewardPaids?.length || 0);
 
 
         if (totalEvents > 0) {
@@ -670,10 +815,18 @@ async function queryNewEvents(): Promise<{
             votingInitiateds: data.votingInitiateds,
             voteExecuteds: data.voteExecuteds,
             memberForfeiteds: data.memberForfeiteds,
+            reputationIncreases: data.reputationIncreaseds || [],
+            reputationDecreases: data.reputationDecreaseds || [],
+            categoryChanges: data.scoreCategoryChangeds || [],
+            referralRewards: data.referralRewardPaids || [],
             latestTimestamp: data._meta?.block?.timestamp || lastProcessedTimestamp,
         };
-    } catch (error) {
-        console.error("[SubgraphService] Error querying new events:", error);
+    } catch (error: any) {
+        console.error("[SubgraphService] Error querying new events. This usually indicates a network issue or rate limiting by The Graph gateway.");
+        if (error.message.includes('SSL') || error.message.includes('EPROTO')) {
+            console.error("[SubgraphService] SSL/Protocol Error detected. Tip: If you are on MacOS, try disabling Apple Private Relay or use a stable network.");
+        }
+        console.error(`[SubgraphService] Details: ${error.message}`);
         return {
             circleJoineds: [],
             payoutDistributeds: [],
@@ -683,6 +836,10 @@ async function queryNewEvents(): Promise<{
             votingInitiateds: [],
             voteExecuteds: [],
             memberForfeiteds: [],
+            reputationIncreases: [],
+            reputationDecreases: [],
+            categoryChanges: [],
+            referralRewards: [],
             latestTimestamp: lastProcessedTimestamp,
         };
     }
@@ -754,6 +911,22 @@ export async function pollAndProcess(retryCount = 0): Promise<void> {
 
         if (events.memberForfeiteds.length > 0) {
             await processMemberForfeitedEvents(events.memberForfeiteds);
+        }
+
+        if (events.reputationIncreases.length > 0) {
+            await processReputationEvents(events.reputationIncreases, true);
+        }
+
+        if (events.reputationDecreases.length > 0) {
+            await processReputationEvents(events.reputationDecreases, false);
+        }
+
+        if (events.categoryChanges.length > 0) {
+            await processCategoryEvents(events.categoryChanges);
+        }
+
+        if (events.referralRewards.length > 0) {
+            await processReferralEvents(events.referralRewards);
         }
 
         // Update last processed timestamp

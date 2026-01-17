@@ -1,9 +1,10 @@
 import webpush from "web-push";
 import { subscriptionStore } from "./subscriptionStore";
-import type {
+import {
     NotificationType,
     NotificationPayload,
     UserSubscription,
+    NOTIFICATION_PREFERENCE_KEYS,
 } from "../types";
 
 // Configure web-push with VAPID keys
@@ -45,38 +46,9 @@ function isNotificationEnabled(
         return false;
     }
 
-    const preferenceKeyMapping: Record<NotificationType, keyof typeof preferences> = {
-        circle_member_joined: "circleMemberJoined",
-        circle_member_payout: "circleMemberPayout",
-        circle_member_contributed: "circleMemberContributed",
-        circle_member_withdrew: "circleMemberWithdrew",
-        circle_started: "circleStarted",
-        circle_completed: "circleCompleted",
-        circle_dead: "circleDead",
-        contribution_due: "contributionDue",
-        vote_required: "voteRequired",
-        vote_executed: "voteExecuted",
-        member_forfeited: "memberForfeited",
-        late_payment_warning: "latePaymentWarning",
-        position_assigned: "positionAssigned",
-        goal_deadline_2days: "goalDeadline2Days",
-        goal_deadline_1day: "goalDeadline1Day",
-        goal_completed: "goalCompleted",
-        goal_contribution_due: "goalContributionDue",
-        goal_milestone: "goalMilestone",
-        circle_invite: "circleInvite",
-        invite_accepted: "inviteAccepted",
-        payment_received: "paymentReceived",
-        credit_score_changed: "creditScoreChanged",
-        withdrawal_fee_applied: "withdrawalFeeApplied",
-        collateral_returned: "collateralReturned",
-        system_maintenance: "systemMaintenance",
-        security_alert: "securityAlert",
-    };
-
-    const key = preferenceKeyMapping[type];
+    const key = NOTIFICATION_PREFERENCE_KEYS[type];
     // Default to true if preference key is not set (allow notification)
-    const isEnabled = key ? preferences[key] !== false : true;
+    const isEnabled = key ? (preferences as any)[key] !== false : true;
     return isEnabled;
 }
 
