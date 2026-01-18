@@ -281,34 +281,36 @@ export async function processPayoutEvents(events: PayoutDistributedEvent[]): Pro
         if (!event.user?.id) continue;
         const amount = formatAmount(event.payoutAmount);
 
-        console.log(`[SubgraphService] Payout of ${amount} to ${event.user.id} in circle ${event.circleId}`);
+        console.log(`[SubgraphService] Delivering payout notifications for circle ${event.circleId}, Round ${event.round}. Recipient: ${event.user.id}`);
+        const members = await getCircleMembers(event.circleId);
+        const recipientAddress = event.user.id.toLowerCase();
 
-        // 1. Notify the recipient
-        await sendNotification([event.user.id], {
+        // 1. Notify the recipient specifically
+        await sendNotification([recipientAddress], {
             title: "Payment Received! 💰",
             message: `You received ${amount} from your circle payout (Round ${event.round})`,
-            type: "payment_received",
+            type: "circle_payout",
             priority: "high",
             action: { action: "/transactions-history" },
             data: { circleId: event.circleId, amount: event.payoutAmount, round: event.round },
         });
 
         // 2. Notify other members about the payout
-        const members = await getCircleMembers(event.circleId);
-        const othersToNotify = members.filter((m) => m.toLowerCase() !== event.user.id.toLowerCase());
+        const othersToNotify = members.filter((m) => m.toLowerCase() !== recipientAddress);
 
         if (othersToNotify.length > 0) {
             const recipientName = event.user.username || "A member";
+            const circleName = await getCircleName(event.circleId);
 
             const results = await sendNotification(othersToNotify, {
                 title: "Circle Payout Completed",
-                message: `${recipientName} received their payout of ${amount}`,
+                message: `${recipientName} received their payout of ${amount} for ${circleName} circle`,
                 type: "circle_member_payout",
                 priority: "high",
                 action: { action: "/circles" },
                 data: { circleId: event.circleId, round: event.round },
             });
-            console.log(`[SubgraphService] Payout notification results: Sent: ${results.sent}, Failed: ${results.failed}`);
+            console.log(`[SubgraphService] Payout notification results for others: Sent: ${results.sent}, Failed: ${results.failed}`);
         }
     }
 }
