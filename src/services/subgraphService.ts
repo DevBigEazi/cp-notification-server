@@ -129,7 +129,6 @@ interface CircleData {
  */
 export function initializeSubgraphService(): boolean {
     if (!SUBGRAPH_URL) {
-        console.error("[SubgraphService] FAILED to initialize: SUBGRAPH_URL is missing in .env");
         return false;
     }
 
@@ -142,9 +141,7 @@ export function initializeSubgraphService(): boolean {
     }
 
     client = new GraphQLClient(SUBGRAPH_URL, { headers });
-    console.log("[SubgraphService] Successfully initialized with URL:", SUBGRAPH_URL);
     if (SUBGRAPH_API_KEY) {
-        console.log("[SubgraphService] Using API Key for Authorization");
     }
     return true;
 }
@@ -172,13 +169,11 @@ async function getCircleMembers(circleId: string): Promise<string[]> {
   `;
 
     try {
-        console.log(`[SubgraphService] Querying members for circle ${circleId}`);
         const data = await client.request<{
             circleJoineds: Array<{ user: { id: string } }>;
             circles: Array<{ creator: { id: string } }>;
         }>(query, { circleId: circleId.toString() });
 
-        console.log(`[SubgraphService] Subgraph response for circle ${circleId}: OK`);
 
         const members = new Set<string>();
 
@@ -193,10 +188,8 @@ async function getCircleMembers(circleId: string): Promise<string[]> {
         }
 
         const memberList = Array.from(members);
-        console.log(`[SubgraphService] Total members found for circle ${circleId}: ${memberList.length}`);
         return memberList;
     } catch (error: any) {
-        console.error(`[SubgraphService] Error fetching members for ${circleId}:`, error.message);
         return [];
     }
 }
@@ -244,14 +237,12 @@ function formatAmount(amountWei: string, decimals = 18): string {
  */
 export async function processCircleJoinedEvents(events: CircleJoinedEvent[]): Promise<void> {
     if (events.length > 0) {
-        console.log(`[SubgraphService] Processing ${events.length} circle joined events`);
     }
     for (const event of events) {
         if (!event.user?.id) continue;
         const members = await getCircleMembers(event.circleId);
         const membersToNotify = members.filter((m) => m.toLowerCase() !== event.user.id.toLowerCase());
 
-        console.log(`[SubgraphService] Member ${event.user.id} joined circle ${event.circleId}. Notifying ${membersToNotify.length} existing members.`);
 
         if (membersToNotify.length > 0) {
             const userName = event.user.username || "Someone";
@@ -265,7 +256,6 @@ export async function processCircleJoinedEvents(events: CircleJoinedEvent[]): Pr
                 action: { action: "/circles" },
                 data: { circleId: event.circleId, newMember: event.user.id },
             });
-            console.log(`[SubgraphService] Join notification results: Sent: ${results.sent}, Failed: ${results.failed}`);
         }
     }
 }
@@ -275,20 +265,19 @@ export async function processCircleJoinedEvents(events: CircleJoinedEvent[]): Pr
  */
 export async function processPayoutEvents(events: PayoutDistributedEvent[]): Promise<void> {
     if (events.length > 0) {
-        console.log(`[SubgraphService] Processing ${events.length} payout events`);
     }
     for (const event of events) {
         if (!event.user?.id) continue;
         const amount = formatAmount(event.payoutAmount);
 
-        console.log(`[SubgraphService] Delivering payout notifications for circle ${event.circleId}, Round ${event.round}. Recipient: ${event.user.id}`);
         const members = await getCircleMembers(event.circleId);
         const recipientAddress = event.user.id.toLowerCase();
+        const circleName = await getCircleName(event.circleId);
 
         // 1. Notify the recipient specifically
         await sendNotification([recipientAddress], {
             title: "Payment Received! 💰",
-            message: `You received ${amount} from your circle payout (Round ${event.round})`,
+            message: `You received ${amount} from "${circleName}" payout (Round ${event.round})`,
             type: "circle_payout",
             priority: "high",
             action: { action: "/transactions-history" },
@@ -300,17 +289,15 @@ export async function processPayoutEvents(events: PayoutDistributedEvent[]): Pro
 
         if (othersToNotify.length > 0) {
             const recipientName = event.user.username || "A member";
-            const circleName = await getCircleName(event.circleId);
 
             const results = await sendNotification(othersToNotify, {
                 title: "Circle Payout Completed",
-                message: `${recipientName} received their payout of ${amount} for ${circleName} circle`,
+                message: `${recipientName} received their payout of ${amount} for "${circleName}" circle (Round ${event.round})`,
                 type: "circle_member_payout",
-                priority: "high",
+                priority: "medium",
                 action: { action: "/circles" },
                 data: { circleId: event.circleId, round: event.round },
             });
-            console.log(`[SubgraphService] Payout notification results for others: Sent: ${results.sent}, Failed: ${results.failed}`);
         }
     }
 }
@@ -320,7 +307,6 @@ export async function processPayoutEvents(events: PayoutDistributedEvent[]): Pro
  */
 export async function processContributionEvents(events: ContributionMadeEvent[]): Promise<void> {
     if (events.length > 0) {
-        console.log(`[SubgraphService] Processing ${events.length} contribution events`);
     }
     for (const event of events) {
         try {
@@ -328,35 +314,33 @@ export async function processContributionEvents(events: ContributionMadeEvent[])
             const members = await getCircleMembers(event.circleId);
             const othersToNotify = members.filter((m) => m.toLowerCase() !== event.user.id.toLowerCase());
 
-            console.log(`[SubgraphService] Contribution by ${event.user.id} in circle ${event.circleId}. Notifying ${othersToNotify.length} others.`);
 
             const contributorName = event.user.username || "A member";
             const amount = formatAmount(event.amount);
+            const circleName = await getCircleName(event.circleId);
 
             // 1. Notify the contributor themselves (Confirmation)
-            await sendNotification([event.user.id], {
+            await sendNotification([event.user.id.toLowerCase()], {
                 title: "Contribution Successful! ✅",
-                message: `You contributed ${amount} to your circle (Round ${event.round})`,
+                message: `Your contribution of ${amount} to "${circleName}" was successful (Round ${event.round})`,
                 type: "payment_received",
                 priority: "high",
-                action: { action: "/" },
+                action: { action: "/transactions-history" },
                 data: { circleId: event.circleId, round: event.round },
             });
 
             // 2. Notify other members
             if (othersToNotify.length > 0) {
                 const results = await sendNotification(othersToNotify, {
-                    title: "Contribution Made ✅",
-                    message: `${contributorName} contributed ${amount} (Round ${event.round})`,
+                    title: "Circle Contribution Made ✅",
+                    message: `${contributorName} contributed ${amount} to "${circleName}" (Round ${event.round})`,
                     type: "circle_member_contributed",
-                    priority: "high",
-                    action: { action: "/" },
+                    priority: "medium",
+                    action: { action: "/circles" },
                     data: { circleId: event.circleId, round: event.round },
                 });
-                console.log(`[SubgraphService] Contribution notification results: Sent: ${results.sent}, Failed: ${results.failed}`);
             }
         } catch (error) {
-            console.error(`[SubgraphService] Error processing contribution event:`, error);
         }
     }
 }
@@ -366,40 +350,43 @@ export async function processContributionEvents(events: ContributionMadeEvent[])
  */
 export async function processCollateralWithdrawnEvents(events: CollateralWithdrawnEvent[]): Promise<void> {
     if (events.length > 0) {
-        console.log(`[SubgraphService] Processing ${events.length} collateral withdrawal events`);
     }
     for (const event of events) {
-        if (!event.user?.id) continue;
-        const amount = formatAmount(event.amount);
+        try {
+            if (!event.user?.id) continue;
+            const amount = formatAmount(event.amount);
+            const circleName = await getCircleName(event.circleId);
 
-        console.log(`[SubgraphService] Collateral withdrawal of ${amount} by ${event.user.id}`);
 
-        // 1. Notify the user who withdrew
-        await sendNotification([event.user.id], {
-            title: "Collateral Returned 💵",
-            message: `Your collateral of ${amount} has been returned`,
-            type: "collateral_returned",
-            priority: "high",
-            action: { action: "/transactions-history" },
-            data: { circleId: event.circleId, amount: event.amount },
-        });
-
-        // 2. Notify other members
-        const members = await getCircleMembers(event.circleId);
-        const othersToNotify = members.filter((m) => m.toLowerCase() !== event.user.id.toLowerCase());
-
-        if (othersToNotify.length > 0) {
-            const userName = event.user.username || "A member";
-
-            const results = await sendNotification(othersToNotify, {
-                title: "Member Withdrew",
-                message: `${userName} withdrew their collateral`,
-                type: "circle_member_withdrew",
+            // 1. Notify the user who withdrew
+            await sendNotification([event.user.id], {
+                title: "Collateral Returned 💵",
+                message: `Your collateral of ${amount} has been returned`,
+                type: "collateral_returned",
                 priority: "high",
                 action: { action: "/transactions-history" },
-                data: { circleId: event.circleId },
+                data: { circleId: event.circleId, amount: event.amount },
             });
-            console.log(`[SubgraphService] Withdrawal notification results: Sent: ${results.sent}, Failed: ${results.failed}`);
+
+            // 2. Notify other members
+            const members = await getCircleMembers(event.circleId);
+            const othersToNotify = members.filter((m) => m.toLowerCase() !== event.user.id.toLowerCase());
+
+            if (othersToNotify.length > 0) {
+                const userName = event.user.username || "A member";
+
+                const results = await sendNotification(othersToNotify, {
+                    title: "Member Withdrew",
+                    message: `${userName} withdrew their collateral from "${circleName}"`,
+                    type: "circle_member_withdrew",
+                    priority: "medium",
+                    action: { action: "/circles" },
+                    data: { circleId: event.circleId },
+                });
+                //console.log(`[SubgraphService] Withdrawal notification results: Sent: ${results.sent}, Failed: ${results.failed}`);
+            }
+        } catch (error) {
+            console.error(`[SubgraphService] Error processing collateral withdrawal event:`, error);
         }
     }
 }
@@ -409,14 +396,14 @@ export async function processCollateralWithdrawnEvents(events: CollateralWithdra
  */
 export async function processMemberInvitedEvents(events: MemberInvitedEvent[]): Promise<void> {
     if (events.length > 0) {
-        console.log(`[SubgraphService] Processing ${events.length} member invitation events`);
+        //console.log(`[SubgraphService] Processing ${events.length} member invitation events`);
     }
     for (const event of events) {
         if (!event.invitee?.id) continue;
         const inviterName = event.inviter?.username || "Someone";
         const circleName = await getCircleName(event.circleId);
 
-        console.log(`[SubgraphService] Invitation from ${event.inviter?.id} to ${event.invitee.id} for circle ${event.circleId}`);
+        //console.log(`[SubgraphService] Invitation from ${event.inviter?.id} to ${event.invitee.id} for circle ${event.circleId}`);
 
         const results = await sendNotification([event.invitee.id], {
             title: "Circle Invitation 📩",
@@ -426,7 +413,7 @@ export async function processMemberInvitedEvents(events: MemberInvitedEvent[]): 
             action: { action: "/browse" },
             data: { circleId: event.circleId, inviter: event.inviter?.id },
         });
-        console.log(`[SubgraphService] Invitation notification results: Sent: ${results.sent}, Failed: ${results.failed}`);
+        //console.log(`[SubgraphService] Invitation notification results: Sent: ${results.sent}, Failed: ${results.failed}`);
     }
 }
 
@@ -435,13 +422,13 @@ export async function processMemberInvitedEvents(events: MemberInvitedEvent[]): 
  */
 export async function processVotingInitiatedEvents(events: VotingInitiatedEvent[]): Promise<void> {
     if (events.length > 0) {
-        console.log(`[SubgraphService] Processing ${events.length} voting initiated events`);
+        //console.log(`[SubgraphService] Processing ${events.length} voting initiated events`);
     }
     for (const event of events) {
         const members = await getCircleMembers(event.circleId);
         const votingEnd = new Date(parseInt(event.votingEndAt) * 1000);
 
-        console.log(`[SubgraphService] Voting initiated for circle ${event.circleId}. Notifying ${members.length} members.`);
+        //console.log(`[SubgraphService] Voting initiated for circle ${event.circleId}. Notifying ${members.length} members.`);
 
         const results = await sendNotification(members, {
             title: "Vote Required! 🗳️",
@@ -451,7 +438,7 @@ export async function processVotingInitiatedEvents(events: VotingInitiatedEvent[
             action: { action: "/circles" },
             data: { circleId: event.circleId, votingEndAt: event.votingEndAt },
         });
-        console.log(`[SubgraphService] Voting notification results: Sent: ${results.sent}, Failed: ${results.failed}`);
+        //console.log(`[SubgraphService] Voting notification results: Sent: ${results.sent}, Failed: ${results.failed}`);
     }
 }
 
@@ -460,13 +447,13 @@ export async function processVotingInitiatedEvents(events: VotingInitiatedEvent[
  */
 export async function processVoteExecutedEvents(events: VoteExecutedEvent[]): Promise<void> {
     if (events.length > 0) {
-        console.log(`[SubgraphService] Processing ${events.length} vote executed events`);
+        //console.log(`[SubgraphService] Processing ${events.length} vote executed events`);
     }
     for (const event of events) {
         const members = await getCircleMembers(event.circleId);
         const result = event.circleStarted ? "Circle Started! 🚀" : "Circle did not start";
 
-        console.log(`[SubgraphService] Vote executed for circle ${event.circleId}. Circle started: ${event.circleStarted}. Notifying ${members.length} members.`);
+        //console.log(`[SubgraphService] Vote executed for circle ${event.circleId}. Circle started: ${event.circleStarted}. Notifying ${members.length} members.`);
 
         const results = await sendNotification(members, {
             title: "Voting Results",
@@ -481,7 +468,7 @@ export async function processVoteExecutedEvents(events: VoteExecutedEvent[]): Pr
                 withdrawVotes: event.withdrawVoteTotal,
             },
         });
-        console.log(`[SubgraphService] Vote result notification results: Sent: ${results.sent}, Failed: ${results.failed}`);
+        //console.log(`[SubgraphService] Vote result notification results: Sent: ${results.sent}, Failed: ${results.failed}`);
     }
 }
 
@@ -490,19 +477,19 @@ export async function processVoteExecutedEvents(events: VoteExecutedEvent[]): Pr
  */
 export async function processMemberForfeitedEvents(events: MemberForfeitedEvent[]): Promise<void> {
     if (events.length > 0) {
-        console.log(`[SubgraphService] Processing ${events.length} member forfeited events`);
+        //console.log(`[SubgraphService] Processing ${events.length} member forfeited events`);
     }
     for (const event of events) {
         if (!event.forfeitedUser?.id) continue;
         const forfeitedName = event.forfeitedUser.username || "A member";
         const amount = formatAmount(event.deductionAmount);
+        const circleName = await getCircleName(event.circleId);
 
-        console.log(`[SubgraphService] Member ${event.forfeitedUser.id} forfeited from circle ${event.circleId}`);
 
         // 1. Notify the forfeited user
         await sendNotification([event.forfeitedUser.id], {
             title: "You have been forfeited ⚠️",
-            message: `You were forfeited from your circle. Deduction: ${amount}`,
+            message: `You were forfeited from "${circleName}". Deduction: ${amount} (Round ${event.round})`,
             type: "member_forfeited",
             priority: "high",
             action: { action: "/circles" },
@@ -516,13 +503,13 @@ export async function processMemberForfeitedEvents(events: MemberForfeitedEvent[
         if (othersToNotify.length > 0) {
             const results = await sendNotification(othersToNotify, {
                 title: "Member Forfeited",
-                message: `${forfeitedName} has been forfeited from the circle`,
+                message: `${forfeitedName} has been forfeited from "${circleName}" (Round ${event.round})`,
                 type: "member_forfeited",
-                priority: "high",
-                action: { action: "/Circles" },
+                priority: "medium",
+                action: { action: "/circles" },
                 data: { circleId: event.circleId, round: event.round },
             });
-            console.log(`[SubgraphService] Forfeiture notification results: Sent: ${results.sent}, Failed: ${results.failed}`);
+            //console.log(`[SubgraphService] Forfeiture notification results: Sent: ${results.sent}, Failed: ${results.failed}`);
         }
     }
 }
@@ -808,7 +795,7 @@ async function queryNewEvents(): Promise<{
 
 
         if (totalEvents > 0) {
-            console.log(`[SubgraphService] Found ${totalEvents} new events since timestamp ${lastProcessedTimestamp}`);
+            //console.log(`[SubgraphService] Found ${totalEvents} new events since timestamp ${lastProcessedTimestamp}`);
         }
 
         return {
@@ -863,11 +850,11 @@ export async function pollAndProcess(retryCount = 0): Promise<void> {
             const state = await SystemState.findOne({ key: "lastProcessedTimestamp" });
             if (state && typeof state.value === "number" && state.value > 0) {
                 lastProcessedTimestamp = state.value;
-                console.log(`[SubgraphService] Resuming from persisted timestamp: ${lastProcessedTimestamp}`);
+                //console.log(`[SubgraphService] Resuming from persisted timestamp: ${lastProcessedTimestamp}`);
             } else {
                 // Initial poll - just get current timestamp to start from now
                 lastProcessedTimestamp = Math.floor(Date.now() / 1000);
-                console.log(`[SubgraphService] Starting fresh from current timestamp: ${lastProcessedTimestamp}`);
+                //console.log(`[SubgraphService] Starting fresh from current timestamp: ${lastProcessedTimestamp}`);
                 await SystemState.updateOne(
                     { key: "lastProcessedTimestamp" },
                     { value: lastProcessedTimestamp },
@@ -882,7 +869,7 @@ export async function pollAndProcess(retryCount = 0): Promise<void> {
 
         // Heartbeat log to show polling is active
         if (Math.random() < 0.1) { // Log approx every 10 polls (~5 mins at 30s)
-            console.log(`[SubgraphService] Heartbeat: Polling Subgraph... (Last: ${lastProcessedTimestamp})`);
+            //console.log(`[SubgraphService] Heartbeat: Polling Subgraph... (Last: ${lastProcessedTimestamp})`);
         }
 
         // Process each event type
