@@ -265,7 +265,7 @@ export interface CircleMember {
 export const NOTIFICATION_PREFERENCE_KEYS: Record<NotificationType, keyof NotificationPreferences> = {
     circle_member_joined: "circleMemberJoined",
     circle_member_payout: "circleMemberPayout",
-    circle_payout: "circleMemberPayout",
+    circle_payout: "paymentReceived",
     circle_member_contributed: "circleMemberContributed",
     circle_member_withdrew: "circleMemberWithdrew",
     circle_started: "circleStarted",

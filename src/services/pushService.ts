@@ -26,7 +26,7 @@ export function initializePushService(): boolean {
     try {
         webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
         isConfigured = true;
-        console.log("[PushService] Successfully initialized with VAPID details");
+        //console.log("[PushService] Successfully initialized with VAPID details");
         return true;
     } catch (error: any) {
         console.error("[PushService] FAILED to set VAPID details:", error.message);
@@ -66,7 +66,7 @@ async function sendToUser(
     // Check if user has this notification type enabled
     if (!isNotificationEnabled(subscription.preferences, payload.type)) {
         const reason = subscription.preferences.pushEnabled === false ? "Push notifications globally disabled" : `Type "${payload.type}" disabled`;
-        console.log(`[PushService] Skipping ${subscription.userAddress}: ${reason}`);
+        //console.log(`[PushService] Skipping ${subscription.userAddress}: ${reason}`);
         return { success: false, error: "Notification type disabled by user" };
     }
 
@@ -100,7 +100,7 @@ async function sendToUser(
 
         // Remove invalid subscriptions (404 Not Found, 410 Gone)
         if (error.statusCode === 404 || error.statusCode === 410) {
-            console.log(`[PushService] Removing expired/invalid subscription for ${subscription.userAddress}`);
+            //console.log(`[PushService] Removing expired/invalid subscription for ${subscription.userAddress}`);
             subscriptionStore.remove(subscription.userAddress);
         }
 
