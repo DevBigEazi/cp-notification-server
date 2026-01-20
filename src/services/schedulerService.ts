@@ -266,7 +266,7 @@ async function checkCircleDeadlines(): Promise<void> {
                 if (!sentNotifications.has(notificationKey)) {
                     await sendNotification(pendingMembers, {
                         title: isFinalWarning ? "Urgent: Circle Payment Due! ⚡" : "Circle Contribution Reminder ⏰",
-                        message: `Your payment for "${circle.circleName}" is due in ${timeStr}. Pay now to avoid reputation loss!`,
+                        message: `Your payment for "${circle.circleName}" is due in ${timeStr}. Pay now to avoid credit score loss!`,
                         type: notificationType,
                         priority: priority,
                         action: { action: `/circles/${circle.circleId}` },

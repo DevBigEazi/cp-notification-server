@@ -521,11 +521,11 @@ export async function processReputationEvents(events: ReputationEvent[], isIncre
     for (const event of events) {
         if (!event.user?.id) continue;
         const emoji = isIncrease ? "⭐️" : "⚠️";
-        const title = isIncrease ? "Reputation Boost!" : "Reputation Decreased";
+        const title = isIncrease ? "Credit Score Boost!" : "Credit Score Decreased";
 
         await sendNotification([event.user.id], {
             title: `${title} ${emoji}`,
-            message: `Your reputation ${isIncrease ? "increased" : "decreased"} by ${event.points} points. Reason: ${event.reason}`,
+            message: `Your credit score has ${isIncrease ? "increased" : "decreased"}. Reason: ${event.reason}`,
             type: "credit_score_changed",
             priority: isIncrease ? "medium" : "high",
             action: { action: "/profile" },
