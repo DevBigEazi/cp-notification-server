@@ -9,6 +9,11 @@ let client: GraphQLClient | null = null;
 let lastProcessedTimestamp = 0;
 let isPolling = false;
 
+// Caches to reduce Subgraph requests
+const circleNameCache = new Map<string, { name: string; timestamp: number }>();
+const circleMembersCache = new Map<string, { members: string[]; timestamp: number }>();
+const CACHE_TTL = 1000 * 60 * 60; // 1 hour cache
+
 // Event interfaces matching the schema
 interface TransactionData {
     blockNumber: string;
@@ -149,9 +154,14 @@ export function initializeSubgraphService(): boolean {
 /**
  * Get members of a circle from Subgraph
  */
-async function getCircleMembers(circleId: string): Promise<string[]> {
+export async function getCircleMembers(circleId: string): Promise<string[]> {
     if (!client) return [];
 
+    // Check cache
+    const cached = circleMembersCache.get(circleId);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        return cached.members;
+    }
 
     const query = gql`
     query GetCircleMembers($circleId: BigInt!) {
@@ -174,7 +184,6 @@ async function getCircleMembers(circleId: string): Promise<string[]> {
             circles: Array<{ creator: { id: string } }>;
         }>(query, { circleId: circleId.toString() });
 
-
         const members = new Set<string>();
 
         if (data.circleJoineds) {
@@ -188,6 +197,10 @@ async function getCircleMembers(circleId: string): Promise<string[]> {
         }
 
         const memberList = Array.from(members);
+
+        // Update cache
+        circleMembersCache.set(circleId, { members: memberList, timestamp: Date.now() });
+
         return memberList;
     } catch (error: any) {
         return [];
@@ -198,8 +211,14 @@ async function getCircleMembers(circleId: string): Promise<string[]> {
 /**
  * Get circle name by ID
  */
-async function getCircleName(circleId: string): Promise<string> {
+export async function getCircleName(circleId: string): Promise<string> {
     if (!client) return "your circle";
+
+    // Check cache
+    const cached = circleNameCache.get(circleId);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        return cached.name;
+    }
 
     const query = gql`
     query GetCircle($circleId: BigInt!) {
@@ -214,15 +233,92 @@ async function getCircleName(circleId: string): Promise<string> {
             query,
             { circleId }
         );
-        return data.circles[0]?.circleName || "your circle";
+        const name = data.circles[0]?.circleName || "your circle";
+
+        // Update cache
+        circleNameCache.set(circleId, { name, timestamp: Date.now() });
+
+        return name;
     } catch (error) {
         return "your circle";
     }
 }
 
 /**
- * Format amount from wei to human-readable
+ * Prefetch metadata for a list of circle IDs to populate caches
  */
+export async function prefetchMetadata(circleIds: string[]): Promise<void> {
+    if (!client || circleIds.length === 0) return;
+
+    // Filter out IDs already in cache
+    const now = Date.now();
+    const uncachedIds = circleIds.filter(id => {
+        const nameCached = circleNameCache.get(id);
+        const membersCached = circleMembersCache.get(id);
+        const isNameStale = !nameCached || (now - nameCached.timestamp > CACHE_TTL);
+        const isMembersStale = !membersCached || (now - membersCached.timestamp > CACHE_TTL);
+        return isNameStale || isMembersStale;
+    });
+
+    if (uncachedIds.length === 0) return;
+
+    // Split into smaller batches if too many IDs (prevent URI too long or huge queries)
+    const batchSize = 25;
+    for (let i = 0; i < uncachedIds.length; i += batchSize) {
+        const batch = uncachedIds.slice(i, i + batchSize);
+
+        const query = gql`
+            query BatchGetMetadata($ids: [BigInt!]!) {
+                circles(where: { circleId_in: $ids }) {
+                    circleId
+                    circleName
+                    creator { id }
+                }
+                circleJoineds(where: { circleId_in: $ids }) {
+                    circleId
+                    user { id }
+                }
+            }
+        `;
+
+        try {
+            const data = await client.request<{
+                circles: Array<{ circleId: string; circleName: string; creator: { id: string } }>;
+                circleJoineds: Array<{ circleId: string; user: { id: string } }>;
+            }>(query, { ids: batch });
+
+            // Process Names
+            data.circles.forEach(c => {
+                circleNameCache.set(c.circleId, { name: c.circleName, timestamp: now });
+            });
+
+            // Process Members
+            const membersByCircle = new Map<string, Set<string>>();
+
+            // Add creators first
+            data.circles.forEach(c => {
+                if (!membersByCircle.has(c.circleId)) membersByCircle.set(c.circleId, new Set());
+                if (c.creator?.id) membersByCircle.get(c.circleId)!.add(c.creator.id.toLowerCase());
+            });
+
+            data.circleJoineds.forEach(cj => {
+                if (!membersByCircle.has(cj.circleId)) membersByCircle.set(cj.circleId, new Set());
+                if (cj.user?.id) membersByCircle.get(cj.circleId)!.add(cj.user.id.toLowerCase());
+            });
+
+            // Update cache
+            membersByCircle.forEach((members, circleId) => {
+                circleMembersCache.set(circleId, {
+                    members: Array.from(members),
+                    timestamp: now
+                });
+            });
+
+        } catch (error) {
+            console.error("[SubgraphService] Error prefetching batch metadata:", error);
+        }
+    }
+}
 function formatAmount(amountWei: string, decimals = 18): string {
     const amount = BigInt(amountWei);
     const divisor = BigInt(10 ** decimals);
@@ -866,6 +962,21 @@ export async function pollAndProcess(retryCount = 0): Promise<void> {
         }
 
         const events = await queryNewEvents();
+
+        // Prefetch metadata for all involved circles to populate cache in ONE request
+        const circleIdsToFetch = new Set<string>();
+        events.circleJoineds.forEach(e => circleIdsToFetch.add(e.circleId));
+        events.payoutDistributeds.forEach(e => circleIdsToFetch.add(e.circleId));
+        events.contributionMades.forEach(e => circleIdsToFetch.add(e.circleId));
+        events.collateralWithdrawns.forEach(e => circleIdsToFetch.add(e.circleId));
+        events.memberInviteds.forEach(e => circleIdsToFetch.add(e.circleId));
+        events.votingInitiateds.forEach(e => circleIdsToFetch.add(e.circleId));
+        events.voteExecuteds.forEach(e => circleIdsToFetch.add(e.circleId));
+        events.memberForfeiteds.forEach(e => circleIdsToFetch.add(e.circleId));
+
+        if (circleIdsToFetch.size > 0) {
+            await prefetchMetadata(Array.from(circleIdsToFetch));
+        }
 
         // Heartbeat log to show polling is active
         if (Math.random() < 0.1) { // Log approx every 10 polls (~5 mins at 30s)

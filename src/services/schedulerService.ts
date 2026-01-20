@@ -211,70 +211,83 @@ async function checkCircleDeadlines(): Promise<void> {
         const circles = circlesData.circles;
         const now = Math.floor(Date.now() / 1000);
 
-        for (const circle of circles) {
-            if (!circle.nextDeadline) continue;
+        // Identify circles that need checking (deadline within 24 hours)
+        const activeCirclesWithDeadlines = circles.filter(circle => {
+            if (!circle.nextDeadline) return false;
+            const hoursUntilDeadline = (parseInt(circle.nextDeadline) - now) / 3600;
+            return hoursUntilDeadline <= 24 && hoursUntilDeadline > 0;
+        });
 
-            const deadline = parseInt(circle.nextDeadline);
-            const timeUntilDeadline = deadline - now;
-            const hoursUntilDeadline = timeUntilDeadline / 3600;
+        if (activeCirclesWithDeadlines.length === 0) return;
 
-            // Only check if deadline is within 24 hours
-            if (hoursUntilDeadline <= 24 && hoursUntilDeadline > 0) {
-                // 2. Get all members of this circle
-                const membersQuery = gql`
-          query GetCircleMembers($circleId: BigInt!) {
-            circleJoineds(where: { circleId: $circleId }) {
-              user {
-                id
-              }
-            }
-          }
-        `;
-                const membersData = await client.request<{ circleJoineds: CircleJoinedEvent[] }>(membersQuery, {
-                    circleId: circle.circleId
-                });
-                const memberAddresses = membersData.circleJoineds.map(m => m.user.id);
+        const circleIds = activeCirclesWithDeadlines.map(c => c.circleId);
 
-                // 3. Get who has already contributed this round
-                const contributionsQuery = gql`
-          query GetRoundContributions($circleId: BigInt!, $round: BigInt!) {
-            contributionMades(where: { circleId: $circleId, round: $round }) {
-              user {
-                id
-              }
-            }
-          }
-        `;
-                const contributionsData = await client.request<{ contributionMades: ContributionEvent[] }>(contributionsQuery, {
-                    circleId: circle.circleId,
-                    round: circle.currentRound
-                });
-                const contributedAddresses = new Set(contributionsData.contributionMades.map(c => c.user.id));
-
-                // 4. Filter members who haven't contributed
-                const pendingMembers = memberAddresses.filter(addr => !contributedAddresses.has(addr));
-
-                if (pendingMembers.length === 0) continue;
-
-                // 5. Send notifications
-                const isFinalWarning = hoursUntilDeadline <= 1;
-                const notificationType = isFinalWarning ? "late_payment_warning" : "contribution_due";
-                const priority = isFinalWarning ? "high" : "medium";
-                const timeStr = isFinalWarning ? "less than 1 hour" : "24 hours";
-                const notificationKey = `circle_${notificationType}_${circle.id}_${circle.currentRound}`;
-
-                if (!sentNotifications.has(notificationKey)) {
-                    await sendNotification(pendingMembers, {
-                        title: isFinalWarning ? "Urgent: Circle Payment Due! ⚡" : "Circle Contribution Reminder ⏰",
-                        message: `Your payment for "${circle.circleName}" is due in ${timeStr}. Pay now to avoid credit score loss!`,
-                        type: notificationType,
-                        priority: priority,
-                        action: { action: `/circles/${circle.circleId}` },
-                        data: { circleId: circle.circleId, round: circle.currentRound, deadline: circle.nextDeadline },
-                    });
-
-                    sentNotifications.add(notificationKey);
+        // 2. Batch fetch ALL members and ALL contributions for these circles
+        const batchQuery = gql`
+            query GetBatchDetails($circleIds: [BigInt!]!) {
+                members: circleJoineds(where: { circleId_in: $circleIds }) {
+                    circleId
+                    user { id }
                 }
+                contributions: contributionMades(where: { circleId_in: $circleIds }) {
+                    circleId
+                    round
+                    user { id }
+                }
+            }
+        `;
+
+        const { members, contributions } = await client.request<{
+            members: CircleJoinedEvent[];
+            contributions: ContributionEvent[];
+        }>(batchQuery, { circleIds });
+
+        // Map data for easy lookup
+        const membersByCircle = new Map<string, string[]>();
+        members.forEach(m => {
+            const list = membersByCircle.get(m.circleId) || [];
+            list.push(m.user.id);
+            membersByCircle.set(m.circleId, list);
+        });
+
+        const contributionsByCircleRound = new Map<string, Set<string>>();
+        contributions.forEach(c => {
+            const key = `${c.circleId}_${c.round}`;
+            const set = contributionsByCircleRound.get(key) || new Set();
+            set.add(c.user.id);
+            contributionsByCircleRound.set(key, set);
+        });
+
+        // 3. Process each circle using the batched data
+        for (const circle of activeCirclesWithDeadlines) {
+            const deadline = parseInt(circle.nextDeadline!);
+            const hoursUntilDeadline = (deadline - now) / 3600;
+
+            const memberAddresses = membersByCircle.get(circle.circleId) || [];
+            const contributedAddresses = contributionsByCircleRound.get(`${circle.circleId}_${circle.currentRound}`) || new Set();
+
+            // Filter members who haven't contributed
+            const pendingMembers = memberAddresses.filter(addr => !contributedAddresses.has(addr));
+
+            if (pendingMembers.length === 0) continue;
+
+            const isFinalWarning = hoursUntilDeadline <= 1;
+            const notificationType = isFinalWarning ? "late_payment_warning" : "contribution_due";
+            const priority = isFinalWarning ? "high" : "medium";
+            const timeStr = isFinalWarning ? "less than 1 hour" : "24 hours";
+            const notificationKey = `circle_${notificationType}_${circle.id}_${circle.currentRound}`;
+
+            if (!sentNotifications.has(notificationKey)) {
+                await sendNotification(pendingMembers, {
+                    title: isFinalWarning ? "Urgent: Circle Payment Due! ⚡" : "Circle Contribution Reminder ⏰",
+                    message: `Your payment for "${circle.circleName}" is due in ${timeStr}. Pay now to avoid credit score loss!`,
+                    type: notificationType,
+                    priority: priority,
+                    action: { action: `/circles/${circle.circleId}` },
+                    data: { circleId: circle.circleId, round: circle.currentRound, deadline: circle.nextDeadline || "" },
+                });
+
+                sentNotifications.add(notificationKey);
             }
         }
     } catch (error: any) {
